@@ -1,0 +1,23 @@
+# Dolphin API服务器环境配置文件
+# 请将此文件重命名为 .env.local 并设置真实的API Keys
+
+# API Keys配置
+# 支持多种格式：
+# 1. 逗号分隔
+API_KEYS=demo_key_12345,test_key_67890,production_key_abcdef123456
+
+# 2. 空格分隔（注释掉上面的行，启用下面的行）
+# API_KEYS=demo_key_12345 test_key_67890 production_key_abcdef123456
+
+# 3. 单个API Key
+# API_KEYS=your_single_api_key_here
+
+# 推荐使用32位十六进制字符串作为API Key
+# 生成方法：
+# openssl rand -hex 32
+# python -c "import secrets; print(secrets.token_hex(32))"
+
+# 其他可选配置（暂未使用，预留）
+# SERVER_HOST=0.0.0.0
+# SERVER_PORT=8765
+# MAX_BATCH_SIZE=4 

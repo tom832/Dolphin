@@ -1,0 +1,10 @@
+# API Keys示例文件
+# 每行一个API Key，以#开头的行为注释
+# 请将此文件重命名为api_keys.txt并替换为真实的API Key
+
+demo_key_12345
+test_key_67890
+production_key_abcdef123456
+
+# 推荐使用32位十六进制字符串作为API Key
+# 生成方法：openssl rand -hex 32 
