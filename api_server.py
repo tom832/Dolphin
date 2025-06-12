@@ -11,6 +11,7 @@ import tempfile
 import time
 import traceback
 from typing import List, Optional, Union
+from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
 
@@ -48,10 +49,54 @@ class ParseResponse(BaseModel):
     processing_time: Optional[float] = None
 
 
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """在应用启动时执行唯一的初始化"""
+    print("🚀 服务启动中，开始初始化...")
+    load_dotenv('.env.local')
+
+    # --- 配置完全来自于环境变量 ---
+    config_path = os.getenv('DOLPHIN_CONFIG', './config/Dolphin.yaml')
+    api_keys_str = os.getenv('API_KEYS', '')
+    api_keys_file = os.getenv('API_KEYS_FILE')
+
+    api_keys = []
+    
+    # 1. 从环境变量 "API_KEYS" 加载 (可以来自 .env 文件或命令行)
+    if api_keys_str:
+        keys = [key.strip() for key in api_keys_str.replace(',', ' ').split() if key.strip()]
+        api_keys.extend(keys)
+        print(f"🔑 从环境变量 'API_KEYS' 加载了 {len(keys)} 个API Keys")
+
+    # 2. 从环境变量 "API_KEYS_FILE" 指定的文件加载
+    if api_keys_file and os.path.exists(api_keys_file):
+        with open(api_keys_file, 'r') as f:
+            file_keys = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
+            api_keys.extend(file_keys)
+            print(f"📁 从文件 {api_keys_file} 读取到 {len(file_keys)} 个API Keys")
+
+    # 去重后初始化
+    if api_keys:
+        unique_keys = list(set(api_keys))
+        init_api_keys(unique_keys)
+        print(f"🔐 API Key认证已启用，总共加载 {len(unique_keys)} 个唯一的Keys。")
+    else:
+        print("⚠️  未设置API Key，认证已禁用（不推荐用于生产环境）")
+
+    # 初始化模型
+    print(f"🚀 正在从 {config_path} 初始化Dolphin模型...")
+    init_model(config_path)
+
+    yield
+    
+    print("👋 应用已关闭")
+
+
 app = FastAPI(
     title="Dolphin Document Parser API",
     description="基于Dolphin模型的文档图像解析API服务",
-    version="1.0.0"
+    version="1.0.0",
+    lifespan=lifespan
 )
 
 # 添加CORS支持
@@ -436,60 +481,51 @@ async def upload_parse_element(
 
 
 def main():
-    # 加载.env.local文件
+    """
+    服务器启动入口。
+    此函数解析命令行参数，设置相应的环境变量，然后启动Uvicorn服务器。
+    所有初始化逻辑均在lifespan事件中处理，以避免在主进程中重复加载。
+    """
+    # 首先加载.env文件，这样命令行参数可以覆盖它
     load_dotenv('.env.local')
     
-    parser = argparse.ArgumentParser(description="Dolphin API Server")
-    parser.add_argument("--config", default="./config/Dolphin.yaml", help="模型配置文件路径")
-    parser.add_argument("--host", default="0.0.0.0", help="服务器主机地址")
-    parser.add_argument("--port", type=int, default=8765, help="服务器端口")
-    parser.add_argument("--workers", type=int, default=1, help="工作进程数")
-    parser.add_argument("--api-keys", nargs="*", default=[], 
-                       help="API Keys列表，用空格分隔。如不提供则不启用认证")
-    parser.add_argument("--api-keys-file", help="包含API Keys的文件路径，每行一个key")
-    parser.add_argument("--no-env", action="store_true", help="不从.env.local文件读取API Keys")
+    parser = argparse.ArgumentParser(
+        description="Dolphin API Server Launcher.\n\n"
+                    "通过 `python api_server.py` 启动时，可以使用所有命令行参数。\n"
+                    "如果直接使用 `uvicorn`，请手动设置环境变量: \n"
+                    "DOLPHIN_CONFIG, API_KEYS, API_KEYS_FILE.",
+        formatter_class=argparse.RawTextHelpFormatter
+    )
+    
+    # Uvicorn相关参数
+    parser.add_argument("--host", default=os.getenv("HOST", "0.0.0.0"), help="服务器主机地址")
+    parser.add_argument("--port", type=int, default=os.getenv("PORT", 8765), help="服务器端口")
+    parser.add_argument("--workers", type=int, default=os.getenv("WORKERS", 1), help="工作进程数")
+    
+    # 应用配置参数
+    parser.add_argument("--config", default=os.getenv('DOLPHIN_CONFIG', './config/Dolphin.yaml'), help="模型配置文件路径")
+    parser.add_argument("--api-keys", nargs="*", default=None, help="API Keys列表，用空格分隔。会覆盖.env中的设置。")
+    parser.add_argument("--api-keys-file", default=os.getenv('API_KEYS_FILE'), help="包含API Keys的文件路径。")
+    
     args = parser.parse_args()
+
+    # --- 将命令行参数设置到环境变量，传递给Uvicorn工作进程 ---
+    os.environ['DOLPHIN_CONFIG'] = args.config
     
-    # 初始化API Keys
-    api_keys = []
-    
-    # 1. 从.env.local文件读取API Keys（除非指定--no-env）
-    if not args.no_env:
-        env_keys_str = os.getenv('API_KEYS', '')
-        if env_keys_str:
-            # 支持逗号分隔或空格分隔
-            env_keys = [key.strip() for key in env_keys_str.replace(',', ' ').split() if key.strip()]
-            api_keys.extend(env_keys)
-            print(f"📄 从.env.local文件读取到 {len(env_keys)} 个API Keys")
-    
-    # 2. 从命令行参数读取API Keys
-    if args.api_keys:
-        api_keys.extend(args.api_keys)
-        print(f"💻 从命令行参数读取到 {len(args.api_keys)} 个API Keys")
-    
-    # 3. 从文件读取API Keys
-    if args.api_keys_file and os.path.exists(args.api_keys_file):
-        with open(args.api_keys_file, 'r') as f:
-            file_keys = [line.strip() for line in f if line.strip() and not line.strip().startswith('#')]
-            api_keys.extend(file_keys)
-            print(f"📁 从文件 {args.api_keys_file} 读取到 {len(file_keys)} 个API Keys")
-    
-    if api_keys:
-        init_api_keys(api_keys)
-        print("🔐 已启用API Key认证")
-    else:
-        print("⚠️  未设置API Key，认证已禁用（不推荐用于生产环境）")
-    
-    # 初始化模型
-    print("🚀 正在初始化Dolphin模型...")
-    init_model(args.config)
+    # 只有当命令行提供了--api-keys时才覆盖环境变量
+    if args.api_keys is not None:
+        os.environ['API_KEYS'] = " ".join(args.api_keys)
+        
+    if args.api_keys_file:
+        os.environ['API_KEYS_FILE'] = args.api_keys_file
     
     # 启动服务器
-    print(f"🌟 启动API服务器...")
-    print(f"📍 本地访问: http://localhost:{args.port}")
-    print(f"🌍 公网访问: http://162.105.160.152:{args.port}")
-    print(f"🔗 Tailscale访问: http://100.71.111.116:{args.port}")
-    print(f"📚 API文档: http://localhost:{args.port}/docs")
+    print(f"🌟 启动API服务器 (通过启动器脚本)...")
+    print(f"   - Host: {args.host}")
+    print(f"   - Port: {args.port}")
+    print(f"   - Workers: {args.workers}")
+    print(f"   - Config: {os.environ.get('DOLPHIN_CONFIG')}")
+    print(f"📚 API文档: http://{args.host}:{args.port}/docs")
     
     uvicorn.run(
         "api_server:app",
