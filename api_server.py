@@ -401,15 +401,29 @@ async def upload_parse_page(
     if model is None:
         raise HTTPException(status_code=503, detail="模型未初始化")
     
-    # 验证文件类型
-    if not file.content_type.startswith('image/'):
+    # 验证文件是否存在
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="未提供有效文件")
+    
+    # 验证文件类型（更健壮的验证）
+    if file.content_type and not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="文件必须是图像格式")
+    
+    # 如果content_type为None，通过文件扩展名验证
+    if not file.content_type:
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
+        file_ext = os.path.splitext(file.filename.lower())[1]
+        if file_ext not in allowed_extensions:
+            raise HTTPException(status_code=400, detail="不支持的文件格式，请上传图像文件")
     
     start_time = time.time()
     
     try:
         # 读取上传的文件
         contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="文件内容为空")
+            
         pil_image = Image.open(io.BytesIO(contents)).convert("RGB")
         
         # 执行页面级解析  
@@ -444,9 +458,20 @@ async def upload_parse_element(
     if model is None:
         raise HTTPException(status_code=503, detail="模型未初始化")
     
-    # 验证文件类型
-    if not file.content_type.startswith('image/'):
+    # 验证文件是否存在
+    if not file or not file.filename:
+        raise HTTPException(status_code=400, detail="未提供有效文件")
+    
+    # 验证文件类型（更健壮的验证）
+    if file.content_type and not file.content_type.startswith('image/'):
         raise HTTPException(status_code=400, detail="文件必须是图像格式")
+    
+    # 如果content_type为None，通过文件扩展名验证
+    if not file.content_type:
+        allowed_extensions = {'.jpg', '.jpeg', '.png', '.bmp', '.tiff', '.webp'}
+        file_ext = os.path.splitext(file.filename.lower())[1]
+        if file_ext not in allowed_extensions:
+            raise HTTPException(status_code=400, detail="不支持的文件格式，请上传图像文件")
     
     # 验证元素类型
     if element_type not in ["text", "table", "formula"]:
@@ -457,6 +482,9 @@ async def upload_parse_element(
     try:
         # 读取上传的文件
         contents = await file.read()
+        if not contents:
+            raise HTTPException(status_code=400, detail="文件内容为空")
+            
         pil_image = Image.open(io.BytesIO(contents)).convert("RGB")
         
         # 执行元素级解析
@@ -507,7 +535,7 @@ def main():
     parser.add_argument("--config", default=os.getenv('DOLPHIN_CONFIG', './config/Dolphin.yaml'), help="模型配置文件路径")
     parser.add_argument("--api-keys", nargs="*", default=None, help="API Keys列表，用空格分隔。会覆盖.env中的设置。")
     parser.add_argument("--api-keys-file", default=os.getenv('API_KEYS_FILE'), help="包含API Keys的文件路径。")
-    parser.add_argument("--root-path", default=os.getenv('ROOT_PATH', ''), help="API根路径前缀，用于反向代理部署。")
+    parser.add_argument("--root-path", default=os.getenv('ROOT_PATH', '/dolphin'), help="API根路径前缀，用于反向代理部署。")
     
     args = parser.parse_args()
 
