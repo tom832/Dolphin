@@ -96,7 +96,8 @@ app = FastAPI(
     title="Dolphin Document Parser API",
     description="基于Dolphin模型的文档图像解析API服务",
     version="1.0.0",
-    lifespan=lifespan
+    lifespan=lifespan,
+    root_path=os.getenv("ROOT_PATH", "/dolphin")  # 可通过环境变量配置，默认为/dolphin（生产环境）
 )
 
 # 添加CORS支持
@@ -506,11 +507,13 @@ def main():
     parser.add_argument("--config", default=os.getenv('DOLPHIN_CONFIG', './config/Dolphin.yaml'), help="模型配置文件路径")
     parser.add_argument("--api-keys", nargs="*", default=None, help="API Keys列表，用空格分隔。会覆盖.env中的设置。")
     parser.add_argument("--api-keys-file", default=os.getenv('API_KEYS_FILE'), help="包含API Keys的文件路径。")
+    parser.add_argument("--root-path", default=os.getenv('ROOT_PATH', ''), help="API根路径前缀，用于反向代理部署。")
     
     args = parser.parse_args()
 
     # --- 将命令行参数设置到环境变量，传递给Uvicorn工作进程 ---
     os.environ['DOLPHIN_CONFIG'] = args.config
+    os.environ['ROOT_PATH'] = args.root_path
     
     # 只有当命令行提供了--api-keys时才覆盖环境变量
     if args.api_keys is not None:
