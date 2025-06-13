@@ -7,10 +7,8 @@ import argparse
 import base64
 import io
 import os
-import tempfile
 import time
-import traceback
-from typing import List, Optional, Union
+from typing import List, Optional
 from contextlib import asynccontextmanager
 
 from dotenv import load_dotenv
@@ -19,15 +17,15 @@ import cv2
 import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from omegaconf import OmegaConf
 from PIL import Image
 from pydantic import BaseModel
 
 from chat import DOLPHIN
-from utils.utils import *
+from utils.utils import crop_margin, prepare_image, parse_layout_string, process_coordinates
 
+import logging
 
 class ParsePageRequest(BaseModel):
     """页面级解析请求"""
@@ -517,6 +515,35 @@ def main():
     """
     # 首先加载.env文件，这样命令行参数可以覆盖它
     load_dotenv('.env.local')
+
+    # 配置日志格式，包含时间信息
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        datefmt="%Y-%m-%d %H:%M:%S"
+    )
+        # 配置 uvicorn 日志格式
+    log_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "default": {
+                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
+        },
+        "handlers": {
+            "default": {
+                "formatter": "default",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "root": {
+            "level": "INFO",
+            "handlers": ["default"],
+        },
+    }
     
     parser = argparse.ArgumentParser(
         description="Dolphin API Server Launcher.\n\n"
@@ -563,7 +590,8 @@ def main():
         host=args.host,
         port=args.port,
         workers=args.workers,
-        reload=False
+        reload=False,
+        log_config=log_config
     )
 
 
