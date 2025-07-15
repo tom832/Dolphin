@@ -30,7 +30,7 @@ import logging
 class ParsePageRequest(BaseModel):
     """页面级解析请求"""
     image_base64: str
-    max_batch_size: Optional[int] = 4
+    max_batch_size: Optional[int] = 1
 
 
 class ParseElementRequest(BaseModel):
@@ -243,6 +243,8 @@ def process_elements_api(layout_results, padded_image, dims, max_batch_size):
         prompts_list = [elem["prompt"] for elem in text_table_elements]
         
         # 批量推理
+        # 为了节省显存，这里max_batch_size=1
+        max_batch_size = 1
         batch_results = model.chat(prompts_list, crops_list, max_batch_size=max_batch_size)
         
         # 添加批量结果到recognition_results
