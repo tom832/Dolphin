@@ -3,7 +3,7 @@
 # Dolphin API服务器启动脚本
 
 # 设置环境变量
-export CUDA_VISIBLE_DEVICES=0
+export CUDA_VISIBLE_DEVICES=1
 
 # 默认参数
 CONFIG_PATH="./config/Dolphin.yaml"

@@ -394,7 +394,7 @@ async def parse_element(request: ParseElementRequest, _: bool = Depends(verify_a
 @app.post("/upload_parse_page", response_model=ParseResponse)
 async def upload_parse_page(
     file: UploadFile = File(...),
-    max_batch_size: int = Form(4),
+    max_batch_size: int = Form(1),
     _: bool = Depends(verify_api_key)
 ):
     """上传文件进行页面级解析"""
