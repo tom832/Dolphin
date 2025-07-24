@@ -18,6 +18,7 @@ import uvicorn
 from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Depends, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from prometheus_fastapi_instrumentator import Instrumentator
 from omegaconf import OmegaConf
 from PIL import Image
 from pydantic import BaseModel
@@ -97,6 +98,9 @@ app = FastAPI(
     lifespan=lifespan,
     root_path=os.getenv("ROOT_PATH", "/dolphin")  # 可通过环境变量配置，默认为/dolphin（生产环境）
 )
+
+# 监控
+Instrumentator().instrument(app).expose(app)
 
 # 添加CORS支持
 app.add_middleware(
