@@ -15,9 +15,10 @@ from dotenv import load_dotenv
 
 import cv2
 import uvicorn
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Depends, Header
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile, Depends, Header, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from starlette.middleware.base import BaseHTTPMiddleware
 from prometheus_fastapi_instrumentator import Instrumentator
 from omegaconf import OmegaConf
 from PIL import Image
@@ -91,16 +92,70 @@ async def lifespan(app: FastAPI):
     print("👋 应用已关闭")
 
 
+load_dotenv('.env.local')
+DOCS_ACCESS_TOKEN = os.getenv("DOCS_ACCESS_TOKEN")
+
+
+class DocsProtectionMiddleware(BaseHTTPMiddleware):
+    """保护文档访问的中间件"""
+    
+    def __init__(self, app, docs_token: str = None):
+        super().__init__(app)
+        self.docs_token = docs_token
+    
+    async def dispatch(self, request: Request, call_next):
+        # 检查是否是访问docs相关路径
+        if request.url.path in ["/docs", "/redoc"] or request.url.path.startswith("/openapi"):
+            # 如果设置了docs token，则需要验证
+            if self.docs_token:
+                # 从查询参数中获取token
+                token = request.query_params.get("token")
+                
+                # 对于openapi.json请求，检查Referer头部是否包含正确的token
+                if request.url.path.startswith("/openapi"):
+                    referer = request.headers.get("referer", "")
+                    if f"token={self.docs_token}" in referer:
+                        # 如果Referer包含正确的token，允许访问
+                        pass
+                    elif token != self.docs_token:
+                        return Response(
+                            content="Unauthorized access to docs",
+                            status_code=401,
+                            media_type="text/plain; charset=utf-8"
+                        )
+                elif token != self.docs_token:
+                    # 对于docs和redoc页面，直接检查token参数
+                    return Response(
+                        content="Unauthorized access to docs",
+                        status_code=401,
+                        media_type="text/plain; charset=utf-8"
+                    )
+        
+        # 继续处理请求
+        response = await call_next(request)
+        return response
+
+
+# 创建FastAPI应用
 app = FastAPI(
     title="Dolphin Document Parser API",
     description="基于Dolphin模型的文档图像解析API服务",
     version="1.0.0",
     lifespan=lifespan,
-    root_path=os.getenv("ROOT_PATH", "/dolphin")  # 可通过环境变量配置，默认为/dolphin（生产环境）
+    root_path=os.getenv("ROOT_PATH", "/dolphin"),  # 可通过环境变量配置，默认为/dolphin（生产环境）
+    # 如果设置了DOCS_ACCESS_TOKEN，则禁用自动生成的docs，通过中间件控制访问
+    docs_url=None if not DOCS_ACCESS_TOKEN else "/docs",
+    redoc_url=None if not DOCS_ACCESS_TOKEN else "/redoc"
 )
 
+# 添加docs保护中间件（需要在其他中间件之前添加）
+if DOCS_ACCESS_TOKEN:
+    app.add_middleware(DocsProtectionMiddleware, docs_token=DOCS_ACCESS_TOKEN)
+
 # 监控
-Instrumentator().instrument(app).expose(app)
+instrumentator = Instrumentator(
+    excluded_handlers=["/metrics", "/health"]
+).instrument(app).expose(app)
 
 # 添加CORS支持
 app.add_middleware(
@@ -569,6 +624,7 @@ def main():
     parser.add_argument("--api-keys", nargs="*", default=None, help="API Keys列表，用空格分隔。会覆盖.env中的设置。")
     parser.add_argument("--api-keys-file", default=os.getenv('API_KEYS_FILE'), help="包含API Keys的文件路径。")
     parser.add_argument("--root-path", default=os.getenv('ROOT_PATH', '/dolphin'), help="API根路径前缀，用于反向代理部署。")
+    parser.add_argument("--docs-token", default=os.getenv('DOCS_ACCESS_TOKEN'), help="文档访问token，用于保护/docs页面。")
     
     args = parser.parse_args()
 
@@ -582,6 +638,9 @@ def main():
         
     if args.api_keys_file:
         os.environ['API_KEYS_FILE'] = args.api_keys_file
+        
+    if args.docs_token:
+        os.environ['DOCS_ACCESS_TOKEN'] = args.docs_token
     
     # 启动服务器
     print(f"🌟 启动API服务器 (通过启动器脚本)...")
@@ -597,7 +656,8 @@ def main():
         port=args.port,
         workers=args.workers,
         reload=False,
-        log_config=log_config
+        log_config=log_config,
+        root_path=args.root_path
     )
 
 
